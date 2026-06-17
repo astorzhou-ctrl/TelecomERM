@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>EcoCash ERM Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            font-family: Arial;
+            background: #f4f6f9;
+        }
+
+        .center {
+            text-align: center;
+            margin-top: 100px;
+        }
+
+        input, select {
+            padding: 10px;
+            margin: 5px;
+            width: 200px;
+        }
+
+        button {
+            padding: 10px;
+            background: #3498db;
+            color: white;
+            border: none;
+            margin: 10px;
+            cursor: pointer;
+        }
+
+        .hidden { display: none; }
+
+        .cards {
+            display: flex;
+            gap: 10px;
+            margin: 20px;
+        }
+
+        .card {
+            flex: 1;
+            padding: 20px;
+            color: white;
+            border-radius: 5px;
+            text-align: center;
+        }
+
+        .high { background: red; }
+        .medium { background: orange; }
+        .low { background: green; }
+        .total { background: blue; }
+
+        canvas {
+            margin: 20px;
+        }
+    </style>
+</head>
+
+<body>
+
+<div id="loginPage" class="center">
+    <h2>Login</h2>
+    <input type="text" id="username" placeholder="Username"><br>
+    <input type="password" id="password" placeholder="Password"><br>
+    <button onclick="login()">Login</button>
+</div>
+
+<div id="dashboardPage" class="hidden">
+
+    <h1 style="text-align:center;">ERM Dashboard</h1>
+
+    <div style="text-align:center;">
+        <button onclick="downloadReport()">📥 Download Excel Report</button>
+    </div>
+
+    <!-- SUMMARY CARDS -->
+    <div class="cards">
+        <div class="card total" id="totalCard">Total</div>
+        <div class="card high" id="highCard">High</div>
+        <div class="card medium" id="mediumCard">Medium</div>
+        <div class="card low" id="lowCard">Low</div>
+    </div>
+
+    <!-- BAR CHART -->
+    <h2 style="text-align:center;">Risk Distribution</h2>
+    <canvas id="barChart"></canvas>
+
+    <!-- HEATMAP -->
+    <h2 style="text-align:center;">Risk Heatmap</h2>
+    <canvas id="heatmapChart"></canvas>
+
+    <h2>Risks</h2>
+
+    <!-- FILTERS -->
+    <div>
+        <input type="text" id="searchInput" placeholder="Search risks..." onkeyup="filterRisks()">
+
+        <select id="filterRating" onchange="filterRisks()">
+            <option value="">All Ratings</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+        </select>
+    </div>
+
+    <ul id="riskList"></ul>
+
+</div>
+
+<script>
+const API_URL = "http://127.0.0.1:8000";
+
+let TOKEN = "";
+let allRisks = [];
+
+async function login() {
+    const username = document.getElementById("username").value;
+    const password = document.getElementById("password").value;
+
+    const res = await fetch(API_URL + "/auth/login", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ username, password })
+    });
+
+    const data = await res.json();
+    TOKEN = "Bearer " + data.access_token;
+
+    document.getElementById("loginPage").classList.add("hidden");
+    document.getElementById("dashboardPage").classList.remove("hidden");
+
+    loadDashboard();
+}
+
+async function loadDashboard() {
+    const res = await fetch(API_URL + "/risks/summary", {
+        headers: { "Authorization": TOKEN }
+    });
+
+    const data = await res.json();
+
+    document.getElementById("totalCard").innerText = "Total: " + data.total_risks;
+    document.getElementById("highCard").innerText = "High: " + data.high_risks;
+    document.getElementById("mediumCard").innerText = "Medium: " + data.medium_risks;
+    document.getElementById("lowCard").innerText = "Low: " + data.low_risks;
+
+    drawBarChart(data);
+    loadRisks();
+    drawHeatmap();
+}
+
+function drawBarChart(data) {
+    new Chart(document.getElementById("barChart"), {
+        type: "bar",
+        data: {
+            labels: ["High", "Medium", "Low"],
+            datasets: [{
+                data: [data.high_risks, data.medium_risks, data.low_risks],
+                backgroundColor: ["red", "orange", "green"]
+            }]
+        }
+    });
+}
+
+async function loadRisks() {
+    const res = await fetch(API_URL + "/risks/", {
+        headers: { "Authorization": TOKEN }
+    });
+
+    allRisks = await res.json();
+    displayRisks(allRisks);
+}
+
+function displayRisks(risks) {
+    const list = document.getElementById("riskList");
+    list.innerHTML = "";
+
+    risks.forEach(r => {
+        const item = document.createElement("li");
+        item.innerText =
+            r.risk_category +
+            " | " +
+            r.risk_description +
+            " | Score: " +
+            r.inherent_risk_score +
+            " | Rating: " +
+            r.inherent_rating;
+
+        list.appendChild(item);
+    });
+}
+
+function filterRisks() {
+    const search = document.getElementById("searchInput").value.toLowerCase();
+    const rating = document.getElementById("filterRating").value;
+
+    const filtered = allRisks.filter(r => {
+        const matchSearch =
+            r.risk_category.toLowerCase().includes(search) ||
+            r.risk_description.toLowerCase().includes(search);
+
+        const matchRating =
+            rating === "" || r.inherent_rating === rating;
+
+        return matchSearch && matchRating;
+    });
+
+    displayRisks(filtered);
+}
+
+async function drawHeatmap() {
+    const res = await fetch(API_URL + "/risks/heatmap", {
+        headers: { "Authorization": TOKEN }
+    });
+
+    const data = await res.json();
+
+    const points = data.map(r => ({
+        x: r.likelihood,
+        y: r.impact
+    }));
+
+    new Chart(document.getElementById("heatmapChart"), {
+        type: 'scatter',
+        data: {
+            datasets: [{
+                label: 'Risk Heatmap',
+                data: points,
+                pointBackgroundColor: 'red',
+                pointRadius: 10
+            }]
+        },
+        options: {
+            scales: {
+                x: { min: 1, max: 5, title: { display: true, text: 'Likelihood' }},
+                y: { min: 1, max: 5, title: { display: true, text: 'Impact' }}
+            }
+        }
+    });
+}
+
+function downloadReport() {
+    window.open(API_URL + "/risks/export");
+}
+</script>
+
+</body>
+</html>

@@ -109,7 +109,9 @@
 </div>
 
 <script>
-const API_URL = "http://127.0.0.1:8000";
+
+// ✅ LIVE API URL
+const API_URL = "https://telecomerm.onrender.com";
 
 let TOKEN = "";
 let allRisks = [];
@@ -118,19 +120,29 @@ async function login() {
     const username = document.getElementById("username").value;
     const password = document.getElementById("password").value;
 
-    const res = await fetch(API_URL + "/auth/login", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ username, password })
-    });
+    try {
+        const res = await fetch(API_URL + "/auth/login", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ username, password })
+        });
 
-    const data = await res.json();
-    TOKEN = "Bearer " + data.access_token;
+        const data = await res.json();
 
-    document.getElementById("loginPage").classList.add("hidden");
-    document.getElementById("dashboardPage").classList.remove("hidden");
+        if (!data.access_token) {
+            alert("Login failed ❌");
+            return;
+        }
 
-    loadDashboard();
+        TOKEN = "Bearer " + data.access_token;
+
+        document.getElementById("loginPage").classList.add("hidden");
+        document.getElementById("dashboardPage").classList.remove("hidden");
+
+        loadDashboard();
+    } catch (err) {
+        alert("Error connecting to server ❌");
+    }
 }
 
 async function loadDashboard() {
@@ -179,13 +191,7 @@ function displayRisks(risks) {
     risks.forEach(r => {
         const item = document.createElement("li");
         item.innerText =
-            r.risk_category +
-            " | " +
-            r.risk_description +
-            " | Score: " +
-            r.inherent_risk_score +
-            " | Rating: " +
-            r.inherent_rating;
+            `${r.risk_category} | ${r.risk_description} | Score: ${r.inherent_risk_score} | Rating: ${r.inherent_rating}`;
 
         list.appendChild(item);
     });
@@ -215,35 +221,3 @@ async function drawHeatmap() {
     });
 
     const data = await res.json();
-
-    const points = data.map(r => ({
-        x: r.likelihood,
-        y: r.impact
-    }));
-
-    new Chart(document.getElementById("heatmapChart"), {
-        type: 'scatter',
-        data: {
-            datasets: [{
-                label: 'Risk Heatmap',
-                data: points,
-                pointBackgroundColor: 'red',
-                pointRadius: 10
-            }]
-        },
-        options: {
-            scales: {
-                x: { min: 1, max: 5, title: { display: true, text: 'Likelihood' }},
-                y: { min: 1, max: 5, title: { display: true, text: 'Impact' }}
-            }
-        }
-    });
-}
-
-function downloadReport() {
-    window.open(API_URL + "/risks/export");
-}
-</script>
-
-</body>
-</html>

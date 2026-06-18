@@ -4,3 +4,4 @@ sqlalchemy
 python-jose
 passlib[bcrypt]
 openpyxl
+bcrypt==3.2.0

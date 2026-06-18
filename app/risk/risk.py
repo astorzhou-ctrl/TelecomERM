@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import FileResponse
 
 from app.models.risk import Risk
@@ -10,7 +10,7 @@ from app.auth.auth import get_current_user, require_role
 from openpyxl import Workbook
 from datetime import datetime
 
-# ✅ Router defined FIRST
+# ✅ Router FIRST
 risk_router = APIRouter()
 
 # =====================
@@ -46,7 +46,7 @@ def validate_scale(value, field):
         raise HTTPException(status_code=400, detail=f"{field} must be between 1 and 5")
 
 # =====================
-# CREATE RISK ✅ FIXED RESPONSE
+# CREATE RISK ✅ FINAL SAFE VERSION
 # =====================
 
 @risk_router.post("/")
@@ -93,6 +93,21 @@ def create_risk(risk: Risk, user: dict = Depends(get_current_user)):
     db.commit()
     db.refresh(db_risk)
 
+    # ✅ PREPARE RESPONSE BEFORE CLOSING DB
+    response = {
+        "id": db_risk.id,
+        "category": db_risk.risk_category,
+        "description": db_risk.risk_description,
+        "likelihood": db_risk.likelihood,
+        "impact": db_risk.impact,
+        "inherent_score": db_risk.inherent_risk_score,
+        "inherent_rating": db_risk.inherent_rating,
+        "residual_score": db_risk.residual_risk_score,
+        "residual_rating": db_risk.residual_rating,
+        "due_date": str(db_risk.due_date) if db_risk.due_date else None,
+        "owner": db_risk.responsible_person or None
+    }
+
     # ✅ AUDIT
     db.add(AuditLog(
         risk_id=db_risk.id,
@@ -104,18 +119,7 @@ def create_risk(risk: Risk, user: dict = Depends(get_current_user)):
 
     db.close()
 
-    # ✅ ✅ FIX: Return DICT (NO MORE {})
-    return {
-        "id": db_risk.id,
-        "category": db_risk.risk_category,
-        "description": db_risk.risk_description,
-        "likelihood": db_risk.likelihood,
-        "impact": db_risk.impact,
-        "inherent_score": db_risk.inherent_risk_score,
-        "inherent_rating": db_risk.inherent_rating,
-        "residual_score": db_risk.residual_risk_score,
-        "residual_rating": db_risk.residual_rating
-    }
+    return response
 
 # =====================
 # UPDATE
@@ -201,7 +205,7 @@ def get_risks():
     return risks
 
 # =====================
-# SUMMARY ✅ FIXED
+# SUMMARY
 # =====================
 
 @risk_router.get("/summary")
@@ -236,7 +240,7 @@ def heatmap():
     return data
 
 # =====================
-# EXPORT ✅ CLEAN FORMAT
+# EXPORT
 # =====================
 
 @risk_router.get("/export")
@@ -266,7 +270,7 @@ def export():
             r.control_score,
             r.residual_risk_score,
             r.responsible_person,
-            str(r.due_date),
+            str(r.due_date) if r.due_date else "",
             r.follow_up_status
         ])
 

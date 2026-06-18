@@ -1,32 +1,35 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>EcoCash ERM Dashboard</title>
+    <title>EcoCash ERM System</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
         body {
             font-family: Arial;
             background: #f4f6f9;
+            margin: 0;
         }
+
+        h1, h2 { text-align: center; }
 
         .center {
             text-align: center;
             margin-top: 100px;
         }
 
-        input, select {
+        input {
             padding: 10px;
             margin: 5px;
             width: 200px;
         }
 
         button {
-            padding: 10px;
+            padding: 8px;
+            margin: 5px;
             background: #3498db;
             color: white;
             border: none;
-            margin: 10px;
             cursor: pointer;
         }
 
@@ -42,8 +45,8 @@
             flex: 1;
             padding: 20px;
             color: white;
-            border-radius: 5px;
             text-align: center;
+            border-radius: 5px;
         }
 
         .high { background: red; }
@@ -51,173 +54,245 @@
         .low { background: green; }
         .total { background: blue; }
 
-        canvas {
+        ul {
+            background: white;
             margin: 20px;
+            padding: 10px;
+            list-style: none;
         }
     </style>
 </head>
 
 <body>
 
+<!-- LOGIN -->
 <div id="loginPage" class="center">
     <h2>Login</h2>
-    <input type="text" id="username" placeholder="Username"><br>
-    <input type="password" id="password" placeholder="Password"><br>
+    <input id="username" placeholder="Username"><br>
+    <input id="password" type="password" placeholder="Password"><br>
     <button onclick="login()">Login</button>
 </div>
 
-<div id="dashboardPage" class="hidden">
+<!-- MAIN APP -->
+<div id="app" class="hidden">
 
-    <h1 style="text-align:center;">ERM Dashboard</h1>
+    <h1>EcoCash ERM System</h1>
 
+    <!-- NAVIGATION -->
     <div style="text-align:center;">
-        <button onclick="downloadReport()">📥 Download Excel Report</button>
+        <button onclick="showSection('dashboard')">Dashboard</button>
+        <button onclick="showSection('add')">Add Risk</button>
+        <button onclick="showSection('manage')">Manage Risks</button>
+        <button onclick="showSection('audit')">Audit Logs</button>
     </div>
 
-    <!-- SUMMARY CARDS -->
-    <div class="cards">
-        <div class="card total" id="totalCard">Total</div>
-        <div class="card high" id="highCard">High</div>
-        <div class="card medium" id="mediumCard">Medium</div>
-        <div class="card low" id="lowCard">Low</div>
+    <!-- DASHBOARD -->
+    <div id="dashboardSection">
+
+        <div class="cards">
+            <div class="card total" id="totalCard">Total</div>
+            <div class="card high" id="highCard">High</div>
+            <div class="card medium" id="mediumCard">Medium</div>
+            <div class="card low" id="lowCard">Low</div>
+        </div>
+
+        <canvas id="barChart"></canvas>
+        <canvas id="heatmapChart"></canvas>
+
+        <div style="text-align:center;">
+            <button onclick="downloadReport()">Download Report</button>
+        </div>
+
     </div>
 
-    <!-- BAR CHART -->
-    <h2 style="text-align:center;">Risk Distribution</h2>
-    <canvas id="barChart"></canvas>
-
-    <!-- HEATMAP -->
-    <h2 style="text-align:center;">Risk Heatmap</h2>
-    <canvas id="heatmapChart"></canvas>
-
-    <h2>Risks</h2>
-
-    <!-- FILTERS -->
-    <div>
-        <input type="text" id="searchInput" placeholder="Search risks..." onkeyup="filterRisks()">
-
-        <select id="filterRating" onchange="filterRisks()">
-            <option value="">All Ratings</option>
-            <option value="High">High</option>
-            <option value="Medium">Medium</option>
-            <option value="Low">Low</option>
-        </select>
+    <!-- ADD RISK -->
+    <div id="addSection" class="hidden center">
+        <h2>Add Risk</h2>
+        <input id="category" placeholder="Category"><br>
+        <input id="description" placeholder="Description"><br>
+        <input id="likelihood" type="number" placeholder="Likelihood"><br>
+        <input id="impact" type="number" placeholder="Impact"><br>
+        <button onclick="addRisk()">Add Risk</button>
     </div>
 
-    <ul id="riskList"></ul>
+    <!-- MANAGE RISKS -->
+    <div id="manageSection" class="hidden">
+        <h2>Manage Risks</h2>
+        <ul id="manageList"></ul>
+    </div>
+
+    <!-- AUDIT LOGS -->
+    <div id="auditSection" class="hidden">
+        <h2>Audit Logs</h2>
+        <ul id="auditList"></ul>
+    </div>
 
 </div>
 
 <script>
 
-// ✅ LIVE API URL
-const API_URL = "https://telecomerm.onrender.com";
+const API_URL = "https://telecomerm-2.onrender.com";
 
 let TOKEN = "";
-let allRisks = [];
+let barChart;
 
 async function login() {
-    const username = document.getElementById("username").value;
-    const password = document.getElementById("password").value;
-
-    try {
-        const res = await fetch(API_URL + "/auth/login", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({ username, password })
-        });
-
-        const data = await res.json();
-
-        if (!data.access_token) {
-            alert("Login failed ❌");
-            return;
-        }
-
-        TOKEN = "Bearer " + data.access_token;
-
-        document.getElementById("loginPage").classList.add("hidden");
-        document.getElementById("dashboardPage").classList.remove("hidden");
-
-        loadDashboard();
-    } catch (err) {
-        alert("Error connecting to server ❌");
-    }
-}
-
-async function loadDashboard() {
-    const res = await fetch(API_URL + "/risks/summary", {
-        headers: { "Authorization": TOKEN }
+    const res = await fetch(API_URL + "/auth/login", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            username: username.value,
+            password: password.value
+        })
     });
 
     const data = await res.json();
 
-    document.getElementById("totalCard").innerText = "Total: " + data.total_risks;
-    document.getElementById("highCard").innerText = "High: " + data.high_risks;
-    document.getElementById("mediumCard").innerText = "Medium: " + data.medium_risks;
-    document.getElementById("lowCard").innerText = "Low: " + data.low_risks;
+    TOKEN = "Bearer " + data.access_token;
 
-    drawBarChart(data);
-    loadRisks();
+    loginPage.classList.add("hidden");
+    app.classList.remove("hidden");
+
+    loadDashboard();
+}
+
+// NAVIGATION
+function showSection(section) {
+    ["dashboardSection","addSection","manageSection","auditSection"]
+        .forEach(id => document.getElementById(id).classList.add("hidden"));
+
+    if (section === "dashboard") {
+        dashboardSection.classList.remove("hidden");
+    } else if (section === "add") {
+        addSection.classList.remove("hidden");
+    } else if (section === "manage") {
+        manageSection.classList.remove("hidden");
+        loadManageRisks();
+    } else if (section === "audit") {
+        auditSection.classList.remove("hidden");
+        loadAuditLogs();
+    }
+}
+
+// DASHBOARD
+async function loadDashboard() {
+    const res = await fetch(API_URL + "/risks/summary", {
+        headers: { Authorization: TOKEN }
+    });
+
+    const data = await res.json();
+
+    totalCard.innerText = "Total: " + data.total_risks;
+    highCard.innerText = "High: " + data.high_risks;
+    mediumCard.innerText = "Medium: " + data.medium_risks;
+    lowCard.innerText = "Low: " + data.low_risks;
+
+    if (barChart) barChart.destroy();
+
+    barChart = new Chart(barChart = document.getElementById("barChart"), {
+        type: "bar",
+        data: {
+            labels: ["High","Medium","Low"],
+            datasets: [{
+                data: [data.high_risks,data.medium_risks,data.low_risks],
+                backgroundColor: ["red","orange","green"]
+            }]
+        }
+    });
+
     drawHeatmap();
 }
 
-function drawBarChart(data) {
-    new Chart(document.getElementById("barChart"), {
-        type: "bar",
+// ADD RISK
+async function addRisk() {
+    await fetch(API_URL + "/risks/", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            Authorization: TOKEN
+        },
+        body: JSON.stringify({
+            risk_category: category.value,
+            risk_description: description.value,
+            likelihood: parseInt(likelihood.value),
+            impact: parseInt(impact.value)
+        })
+    });
+
+    alert("✅ Risk added");
+    loadDashboard();
+}
+
+// MANAGE RISKS
+async function loadManageRisks() {
+    const res = await fetch(API_URL + "/risks/", {
+        headers: { Authorization: TOKEN }
+    });
+
+    const data = await res.json();
+    manageList.innerHTML = "";
+
+    data.forEach(r => {
+        const li = document.createElement("li");
+        li.innerHTML = `
+            ${r.risk_description} (${r.inherent_rating})
+            <button onclick="deleteRisk(${r.id})">Delete</button>
+        `;
+        manageList.appendChild(li);
+    });
+}
+
+// DELETE
+async function deleteRisk(id) {
+    await fetch(API_URL + "/risks/" + id, {
+        method: "DELETE",
+        headers: { Authorization: TOKEN }
+    });
+
+    loadManageRisks();
+}
+
+// AUDIT LOGS
+async function loadAuditLogs() {
+    const res = await fetch(API_URL + "/risks/audit", {
+        headers: { Authorization: TOKEN }
+    });
+
+    const data = await res.json();
+    auditList.innerHTML = "";
+
+    data.forEach(a => {
+        const li = document.createElement("li");
+        li.innerText = `${a.action} | Risk ID: ${a.risk_id}`;
+        auditList.appendChild(li);
+    });
+}
+
+// HEATMAP
+async function drawHeatmap() {
+    const res = await fetch(API_URL + "/risks/heatmap", {
+        headers: { Authorization: TOKEN }
+    });
+
+    const data = await res.json();
+
+    new Chart(document.getElementById("heatmapChart"), {
+        type: "scatter",
         data: {
-            labels: ["High", "Medium", "Low"],
             datasets: [{
-                data: [data.high_risks, data.medium_risks, data.low_risks],
-                backgroundColor: ["red", "orange", "green"]
+                data: data.map(r => ({x:r.likelihood,y:r.impact})),
+                pointBackgroundColor: "red"
             }]
         }
     });
 }
 
-async function loadRisks() {
-    const res = await fetch(API_URL + "/risks/", {
-        headers: { "Authorization": TOKEN }
-    });
-
-    allRisks = await res.json();
-    displayRisks(allRisks);
+// EXPORT
+function downloadReport() {
+    window.open(API_URL + "/risks/export");
 }
 
-function displayRisks(risks) {
-    const list = document.getElementById("riskList");
-    list.innerHTML = "";
+</script>
 
-    risks.forEach(r => {
-        const item = document.createElement("li");
-        item.innerText =
-            `${r.risk_category} | ${r.risk_description} | Score: ${r.inherent_risk_score} | Rating: ${r.inherent_rating}`;
-
-        list.appendChild(item);
-    });
-}
-
-function filterRisks() {
-    const search = document.getElementById("searchInput").value.toLowerCase();
-    const rating = document.getElementById("filterRating").value;
-
-    const filtered = allRisks.filter(r => {
-        const matchSearch =
-            r.risk_category.toLowerCase().includes(search) ||
-            r.risk_description.toLowerCase().includes(search);
-
-        const matchRating =
-            rating === "" || r.inherent_rating === rating;
-
-        return matchSearch && matchRating;
-    });
-
-    displayRisks(filtered);
-}
-
-async function drawHeatmap() {
-    const res = await fetch(API_URL + "/risks/heatmap", {
-        headers: { "Authorization": TOKEN }
-    });
-
-    const data = await res.json();
+</body>
+</html>

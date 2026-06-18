@@ -10,7 +10,7 @@ from app.auth.auth import get_current_user, require_role
 from openpyxl import Workbook
 from datetime import datetime
 
-# ✅ FIXED: Router defined FIRST
+# ✅ Router defined FIRST
 risk_router = APIRouter()
 
 # =====================
@@ -40,16 +40,13 @@ def control_rating(score: int):
     }
     return mapping.get(score, "Unknown")
 
-# =====================
-# VALIDATION FUNCTION
-# =====================
 
 def validate_scale(value, field):
     if value < 1 or value > 5:
         raise HTTPException(status_code=400, detail=f"{field} must be between 1 and 5")
 
 # =====================
-# CREATE RISK
+# CREATE RISK ✅ FIXED RESPONSE
 # =====================
 
 @risk_router.post("/")
@@ -96,7 +93,7 @@ def create_risk(risk: Risk, user: dict = Depends(get_current_user)):
     db.commit()
     db.refresh(db_risk)
 
-    # ✅ AUDIT LOG
+    # ✅ AUDIT
     db.add(AuditLog(
         risk_id=db_risk.id,
         action="CREATE",
@@ -106,10 +103,22 @@ def create_risk(risk: Risk, user: dict = Depends(get_current_user)):
     db.commit()
 
     db.close()
-    return db_risk
+
+    # ✅ ✅ FIX: Return DICT (NO MORE {})
+    return {
+        "id": db_risk.id,
+        "category": db_risk.risk_category,
+        "description": db_risk.risk_description,
+        "likelihood": db_risk.likelihood,
+        "impact": db_risk.impact,
+        "inherent_score": db_risk.inherent_risk_score,
+        "inherent_rating": db_risk.inherent_rating,
+        "residual_score": db_risk.residual_risk_score,
+        "residual_rating": db_risk.residual_rating
+    }
 
 # =====================
-# UPDATE RISK
+# UPDATE
 # =====================
 
 @risk_router.put("/{risk_id}")
@@ -117,49 +126,32 @@ def update_risk(risk_id: int, updated: Risk, user: dict = Depends(get_current_us
     db = SessionLocal()
 
     db_risk = db.query(RiskDB).filter(RiskDB.id == risk_id).first()
-
     if not db_risk:
         raise HTTPException(status_code=404, detail="Risk not found")
 
-    # ✅ VALIDATION
     validate_scale(updated.likelihood, "Likelihood")
     validate_scale(updated.impact, "Impact")
-    validate_scale(updated.residual_likelihood, "Residual likelihood")
-    validate_scale(updated.residual_impact, "Residual impact")
-    validate_scale(updated.control_score, "Control score")
 
     inherent_score = updated.likelihood * updated.impact
     residual_score = updated.residual_likelihood * updated.residual_impact
 
     db_risk.risk_category = updated.risk_category
     db_risk.risk_description = updated.risk_description
-    db_risk.implication = updated.implication
-
     db_risk.likelihood = updated.likelihood
     db_risk.impact = updated.impact
     db_risk.inherent_risk_score = inherent_score
     db_risk.inherent_rating = calculate_rating(inherent_score)
-
-    db_risk.control_score = updated.control_score
-    db_risk.control_rating = control_rating(updated.control_score)
 
     db_risk.residual_likelihood = updated.residual_likelihood
     db_risk.residual_impact = updated.residual_impact
     db_risk.residual_risk_score = residual_score
     db_risk.residual_rating = calculate_rating(residual_score)
 
-    db_risk.mitigation_strategy = updated.mitigation_strategy
-    db_risk.management_response = updated.management_response
-    db_risk.responsible_person = updated.responsible_person
-    db_risk.due_date = updated.due_date
-    db_risk.follow_up_status = updated.follow_up_status
-
     db_risk.updated_by = user["sub"]
     db_risk.updated_at = datetime.utcnow()
 
     db.commit()
 
-    # ✅ AUDIT
     db.add(AuditLog(
         risk_id=risk_id,
         action="UPDATE",
@@ -169,7 +161,7 @@ def update_risk(risk_id: int, updated: Risk, user: dict = Depends(get_current_us
     db.commit()
 
     db.close()
-    return db_risk
+    return {"message": "Updated"}
 
 # =====================
 # DELETE
@@ -204,23 +196,12 @@ def delete_risk(risk_id: int, user: dict = Depends(require_role(["admin"]))):
 @risk_router.get("/")
 def get_risks():
     db = SessionLocal()
-    data = db.query(RiskDB).all()
+    risks = db.query(RiskDB).all()
     db.close()
-    return data
+    return risks
 
 # =====================
-# AUDIT
-# =====================
-
-@risk_router.get("/audit")
-def get_audit():
-    db = SessionLocal()
-    data = db.query(AuditLog).all()
-    db.close()
-    return data
-
-# =====================
-# SUMMARY
+# SUMMARY ✅ FIXED
 # =====================
 
 @risk_router.get("/summary")
@@ -228,15 +209,17 @@ def summary():
     db = SessionLocal()
     risks = db.query(RiskDB).all()
 
-    res = {
+    result = {
         "total_risks": len(risks),
-        "high": len([r for r in risks if r.inherent_rating == "Catastrophic"]),
-        "medium": len([r for r in risks if r.inherent_rating == "Significant"]),
-        "low": len([r for r in risks if r.inherent_rating == "Moderate"])
+        "catastrophic": len([r for r in risks if r.inherent_rating == "Catastrophic"]),
+        "severe": len([r for r in risks if r.inherent_rating == "Severe"]),
+        "significant": len([r for r in risks if r.inherent_rating == "Significant"]),
+        "moderate": len([r for r in risks if r.inherent_rating == "Moderate"]),
+        "minor": len([r for r in risks if r.inherent_rating == "Minor"])
     }
 
     db.close()
-    return res
+    return result
 
 # =====================
 # HEATMAP
@@ -253,7 +236,7 @@ def heatmap():
     return data
 
 # =====================
-# EXPORT
+# EXPORT ✅ CLEAN FORMAT
 # =====================
 
 @risk_router.get("/export")
@@ -264,25 +247,27 @@ def export():
     wb = Workbook()
     ws = wb.active
 
-    # ✅ EXACT HEADERS
     ws.append([
-        "Risk ID", "Risk Category", "Risk Description", "Implication",
-        "Likelihood", "Impact", "Inherent Score", "Inherent Rating",
-        "Control Score", "Control Rating",
-        "Residual Likelihood", "Residual Impact", "Residual Score", "Residual Rating",
-        "Mitigation Strategy", "Management Response",
-        "Responsible Person", "Due Date", "Follow-up Status"
+        "Risk ID", "Category", "Description",
+        "Likelihood", "Impact", "Score", "Rating",
+        "Control Score", "Residual Score",
+        "Owner", "Due Date", "Status"
     ])
 
     for r in risks:
         ws.append([
-            r.id, r.risk_category, r.risk_description, r.implication,
-            r.likelihood, r.impact, r.inherent_risk_score, r.inherent_rating,
-            r.control_score, r.control_rating,
-            r.residual_likelihood, r.residual_impact,
-            r.residual_risk_score, r.residual_rating,
-            r.mitigation_strategy, r.management_response,
-            r.responsible_person, str(r.due_date), r.follow_up_status
+            r.id,
+            r.risk_category,
+            r.risk_description,
+            r.likelihood,
+            r.impact,
+            r.inherent_risk_score,
+            r.inherent_rating,
+            r.control_score,
+            r.residual_risk_score,
+            r.responsible_person,
+            str(r.due_date),
+            r.follow_up_status
         ])
 
     file = "risk_register.xlsx"
